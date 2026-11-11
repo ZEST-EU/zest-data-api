@@ -1,0 +1,62 @@
+name: Build and publish Docker image
+
+# Builds the zest-data-api image and pushes it to GitHub Container Registry
+# whenever you create a version tag (e.g. `v1.2.3`). Easiest trigger from the
+# GitHub web UI: Releases -> "Draft a new release" -> new tag `v1.2.3` -> Publish.
+# (A plain `git push origin v1.2.3` works too.)
+on:
+  push:
+    tags:
+      - 'v*'
+  # Allows a manual run from the Actions tab (tags the image by commit SHA).
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # -> ghcr.io/zest-eu/zest-data-api (metadata-action lowercases the name).
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # required to push to GHCR with the built-in GITHUB_TOKEN
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # From tag v1.2.3 -> :1.2.3, :1.2, and :latest; plus a short-SHA tag so
+          # manual (workflow_dispatch) runs still produce a uniquely named image.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=tag
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Speed up repeat builds using the Actions cache.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,26 +1,22 @@
 """Database engine, session factory, declarative base, and portable column types.
 
-The models target PostgreSQL in production (JSONB / BYTEA / BIGINT identity), but
-use dialect variants so the full schema also works on SQLite — which lets the test
-suite run against an in-memory database with no external services.
+The models target PostgreSQL in production (BIGINT identity), but use a dialect
+variant for the surrogate PK so the full schema also works on SQLite — which lets
+the test suite run against an in-memory database with no external services.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import BigInteger, Integer, LargeBinary, create_engine, event
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import BigInteger, Integer, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-from sqlalchemy.types import JSON
 
 from .config import get_settings
 
 # --- Portable column types --------------------------------------------------
-# PostgreSQL gets its native rich types; SQLite (tests) gets generic equivalents.
+# PostgreSQL gets a BIGINT identity; SQLite (tests) gets a plain INTEGER PK.
 BigIntPK = BigInteger().with_variant(Integer, "sqlite")
-JSONBType = JSON().with_variant(JSONB, "postgresql")
-BinaryType = LargeBinary().with_variant(LargeBinary, "sqlite")
 
 
 class Base(DeclarativeBase):

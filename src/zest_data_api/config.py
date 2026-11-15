@@ -24,8 +24,16 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     root_path: str = ""
 
-    # Ingest
+    # Uploads
     max_upload_bytes: int = 64 * 1024 * 1024
+
+    # Object storage (MinIO / S3-compatible). When storage_endpoint is empty, an
+    # in-memory store is used instead — handy for tests and MinIO-less local runs.
+    storage_endpoint: str = ""
+    storage_access_key: str = "zest"
+    storage_secret_key: str = "zest-minio-dev"
+    storage_bucket: str = "datasets"
+    storage_secure: bool = False
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -1,104 +1,79 @@
 #!/usr/bin/env python3
-"""Upload SIM-01-format datasets to a running zest-data-api via POST /datasets.
+"""Upload a directory of files to zest-data-api as a single dataset (POST /datasets).
 
-Discovers run groups in a directory by the ``<run_id>_log.csv`` /
-``<run_id>_labels.csv`` / ``<run_id>_truth.json`` naming convention and uploads
-each run as one multipart request. Standard library only.
+Standard library only. All regular files directly inside the directory are sent as
+one dataset bundle (stored in MinIO behind the API).
 
 Usage:
     python scripts/upload_dataset.py ../data-temp
-    python scripts/upload_dataset.py ../data-temp --api-url http://localhost:8091 --replace
+    python scripts/upload_dataset.py ../data-temp --name SIM-01 --api-url http://localhost:8091
 """
 
 from __future__ import annotations
 
 import argparse
+import mimetypes
 import secrets
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-SUFFIXES = {
-    "log": "_log.csv",
-    "labels": "_labels.csv",
-    "truth": "_truth.json",
-}
-CONTENT_TYPES = {
-    "log": "text/csv",
-    "labels": "text/csv",
-    "truth": "application/json",
-}
 
-
-def discover_runs(directory: Path) -> dict[str, dict[str, Path]]:
-    """Map run_id -> {field: path} for every run found in *directory*."""
-    runs: dict[str, dict[str, Path]] = {}
-    for path in sorted(directory.iterdir()):
-        for field, suffix in SUFFIXES.items():
-            if path.name.endswith(suffix):
-                run_id = path.name[: -len(suffix)]
-                runs.setdefault(run_id, {})[field] = path
-    return runs
-
-
-def encode_multipart(files: dict[str, Path]) -> tuple[bytes, str]:
-    """Encode {field: path} as multipart/form-data. Returns (body, content_type)."""
+def encode_multipart(files: list[Path], fields: dict[str, str]) -> tuple[bytes, str]:
+    """Encode files (field name 'files') + simple form fields as multipart/form-data."""
     boundary = "----zestdataapi" + secrets.token_hex(16)
     out = bytearray()
-    for field, path in files.items():
+    for key, value in fields.items():
+        if value is None:
+            continue
+        out += f"--{boundary}\r\n".encode()
+        out += f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
+        out += f"{value}\r\n".encode()
+    for path in files:
+        ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         out += f"--{boundary}\r\n".encode()
         out += (
-            f'Content-Disposition: form-data; name="{field}"; filename="{path.name}"\r\n'
+            f'Content-Disposition: form-data; name="files"; filename="{path.name}"\r\n'
         ).encode()
-        out += f"Content-Type: {CONTENT_TYPES[field]}\r\n\r\n".encode()
+        out += f"Content-Type: {ctype}\r\n\r\n".encode()
         out += path.read_bytes()
         out += b"\r\n"
     out += f"--{boundary}--\r\n".encode()
     return bytes(out), f"multipart/form-data; boundary={boundary}"
 
 
-def upload_run(api_url: str, run_id: str, files: dict[str, Path], replace: bool) -> int:
-    body, content_type = encode_multipart(files)
-    url = f"{api_url.rstrip('/')}/datasets"
-    if replace:
-        url += "?replace=true"
-    req = urllib.request.Request(url, data=body, method="POST")
-    req.add_header("Content-Type", content_type)
-    try:
-        with urllib.request.urlopen(req) as resp:
-            print(f"[{run_id}] {resp.status} {resp.read().decode()}")
-            return 0
-    except urllib.error.HTTPError as exc:
-        print(f"[{run_id}] HTTP {exc.code}: {exc.read().decode()}", file=sys.stderr)
-        return 1
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=Path, help="Directory containing dataset files")
+    parser.add_argument("directory", type=Path, help="Directory of files to upload as one dataset")
+    parser.add_argument("--name", default=None, help="Dataset name (default: directory name)")
+    parser.add_argument("--description", default=None, help="Optional dataset description")
     parser.add_argument("--api-url", default="http://localhost:8091", help="Base API URL")
-    parser.add_argument("--replace", action="store_true", help="Overwrite existing runs")
     args = parser.parse_args()
 
     if not args.directory.is_dir():
         print(f"Not a directory: {args.directory}", file=sys.stderr)
         return 2
 
-    runs = discover_runs(args.directory)
-    if not runs:
-        print(f"No SIM-01-format datasets found in {args.directory}", file=sys.stderr)
+    files = sorted(p for p in args.directory.iterdir() if p.is_file())
+    if not files:
+        print(f"No files found in {args.directory}", file=sys.stderr)
         return 2
 
-    print(f"Found {len(runs)} run(s): {', '.join(runs)}")
-    failures = 0
-    for run_id, files in runs.items():
-        if "log" not in files and "truth" not in files:
-            print(f"[{run_id}] skipped (needs a log or truth file)", file=sys.stderr)
-            failures += 1
-            continue
-        failures += upload_run(args.api_url, run_id, files, args.replace)
-    return 1 if failures else 0
+    fields = {"name": args.name or args.directory.resolve().name, "description": args.description}
+    body, content_type = encode_multipart(files, fields)
+
+    url = f"{args.api_url.rstrip('/')}/datasets"
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", content_type)
+    print(f"Uploading {len(files)} file(s) to {url} …")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            print(f"{resp.status} {resp.read().decode()}")
+            return 0
+    except urllib.error.HTTPError as exc:
+        print(f"HTTP {exc.code}: {exc.read().decode()}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

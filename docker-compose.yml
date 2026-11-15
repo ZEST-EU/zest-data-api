@@ -1,5 +1,5 @@
-# Local development stack. The `db` mirrors the credentials of the postgres-db
-# deployed by zest-cloud-k8s (zest/zest/zest) so DATABASE_URLs are interchangeable.
+# Local development stack. `db` + `minio` mirror the credentials deployed by
+# zest-cloud-k8s so URLs are interchangeable between local and in-cluster.
 services:
   db:
     image: postgres:16
@@ -18,18 +18,43 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    image: minio/minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: zest
+      MINIO_ROOT_PASSWORD: zest-minio-dev
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - zest_minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build: .
     environment:
       ZEST_API_DATABASE_URL: postgresql+psycopg://zest:zest@db:5432/zest
       ZEST_API_CORS_ORIGINS: '["http://localhost:5173"]'
+      ZEST_API_STORAGE_ENDPOINT: minio:9000
+      ZEST_API_STORAGE_ACCESS_KEY: zest
+      ZEST_API_STORAGE_SECRET_KEY: zest-minio-dev
+      ZEST_API_STORAGE_BUCKET: datasets
+      ZEST_API_STORAGE_SECURE: "false"
     ports:
       - "8091:8091"
     depends_on:
       db:
         condition: service_healthy
-    # Apply migrations, then serve.
+      minio:
+        condition: service_healthy
+    # Apply migrations, then serve (the app ensures the bucket on startup).
     command: ["sh", "-c", "alembic upgrade head && uvicorn zest_data_api.main:app --host 0.0.0.0 --port 8091"]
 
 volumes:
   zest_pgdata:
+  zest_minio:

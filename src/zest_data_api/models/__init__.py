@@ -9,14 +9,11 @@ from __future__ import annotations
 from .core import (
     FeedstockFungiCombination,
     FermentationProcessRun,
-    ProcessMeasurementRecord,
-    RawFile,
-    SyntheticRunSpec,
 )
+from .datasets import Dataset, DatasetFile
 from .enums import (
     ProcessMode,
     ProcessStatus,
-    RawFileKind,
     RunScale,
     Severity,
     ValueStatus,
@@ -48,9 +45,9 @@ __all__ = [
     # core
     "FeedstockFungiCombination",
     "FermentationProcessRun",
-    "ProcessMeasurementRecord",
-    "RawFile",
-    "SyntheticRunSpec",
+    # datasets (object-storage metadata)
+    "Dataset",
+    "DatasetFile",
     # results
     "ProcessBiomassOutcome",
     "ProcessObservation",
@@ -61,5 +58,4 @@ __all__ = [
     "RunScale",
     "ValueStatus",
     "Severity",
-    "RawFileKind",
 ]

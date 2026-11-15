@@ -50,10 +50,3 @@ class Severity(StrEnum):
     MAJOR = "major"
     CRITICAL = "critical"
     UNKNOWN = "unknown"
-
-
-class RawFileKind(StrEnum):
-    LOG = "log"
-    LABELS = "labels"
-    TRUTH = "truth"
-    OTHER = "other"
